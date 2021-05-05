@@ -481,12 +481,12 @@ class Anime():
                 # 如果是浮点数
                 a = re.findall(r'^\d+\.', self._episode)[0][:-1]
                 b = re.findall(r'\.\d+$', self._episode)[0]
-                episode = '[' + a.zfill(self._settings['zerofill']) + b + ']'
+                episode = a.zfill(self._settings['zerofill']) + b + ' '
             else:
                 # 如果是整数
-                episode = '[' + self._episode.zfill(self._settings['zerofill']) + ']'
+                episode = self._episode.zfill(self._settings['zerofill']) + ' '
         else:
-            episode = '[' + self._episode + ']'
+            episode = self._episode + ' '
 
         if self._settings['add_bangumi_name_to_video_filename']:
             # 如果用户需要番剧名
@@ -494,10 +494,10 @@ class Anime():
                            + self._bangumi_name \
                            + self._settings['customized_bangumi_name_suffix']
 
-            filename = bangumi_name + episode  # 有番剧名的文件名
+            filename = bangumi_name + " Ep" + episode  # 有番剧名的文件名
         else:
             # 如果用户不要将番剧名添加到文件名
-            filename = self._settings['customized_video_filename_prefix'] + episode
+            filename = self._settings['customized_video_filename_prefix'] + " Ep" + episode
 
         # 添加分辨率后缀
         if self._settings['add_resolution_to_video_filename']:

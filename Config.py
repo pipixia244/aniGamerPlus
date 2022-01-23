@@ -8,16 +8,21 @@
 import os, json, re, sys, requests, time, random, codecs, chardet
 import sqlite3
 import socket
+from urllib.parse import quote
 from urllib.parse import urlencode
 
-working_dir = os.path.dirname(os.path.realpath(__file__))
-# working_dir = os.path.dirname(sys.executable)  # 使用 pyinstaller 编译时，打开此项
+# 你猜猜看我是 .exe 或是 .py 檔案
+if getattr(sys, 'frozen', False):
+    working_dir = os.path.dirname(sys.executable)
+else:
+    working_dir = os.path.dirname(os.path.realpath(__file__))
+
 config_path = os.path.join(working_dir, 'config.json')
 sn_list_path = os.path.join(working_dir, 'sn_list.txt')
 cookie_path = os.path.join(working_dir, 'cookie.txt')
 logs_dir = os.path.join(working_dir, 'logs')
-aniGamerPlus_version = 'v22.0'
-latest_config_version = 15.2
+aniGamerPlus_version = 'v22.7'
+latest_config_version = 15.3
 latest_database_version = 2.0
 cookie = None
 max_multi_thread = 5
@@ -79,6 +84,7 @@ def __init_settings():
                 'check_frequency': 5,  # 检查 cd 时间, 单位分钟
                 'download_resolution': '1080',  # 下载分辨率
                 'lock_resolution': False,  # 锁定分辨率, 如果分辨率不存在, 则宣布下载失败
+                'only_use_vip': False,  # 锁定 VIP 账号下载
                 'default_download_mode': 'latest',  # 仅下载最新一集，另一个模式是 'all' 下载所有及日后更新
                 'use_copyfile_method': False,  # 转移视频至番剧目录时是否使用复制法, 使用 True 以兼容 rclone 挂载盘
                 'multi-thread': 1,  # 最大并发下载数
@@ -326,6 +332,9 @@ def __update_settings(old_settings):  # 升级配置文件
         del new_settings['coolq_settings']['port']
         del new_settings['coolq_settings']['api']
         del new_settings['coolq_settings']['SSL']
+
+    if 'only_use_vip' not in new_settings.keys():
+        new_settings['only_use_vip'] = False
 
     new_settings['config_version'] = latest_config_version
     with open(config_path, 'w', encoding='utf-8') as f:
@@ -638,7 +647,7 @@ def read_cookie(log=False):
             for line in f.readlines():
                 if not line.isspace():  # 跳过空白行
                     cookies = line.replace('\n', '')  # 刪除换行符
-                    cookies = dict([l.split("=", 1) for l in cookies.split("; ")])
+                    cookies = dict([list(map(lambda x: quote(x, safe='') if re.match(r'[\u4e00-\u9fa5]', x) else x,  l.split("=", 1))) for l in cookies.split("; ")])
                     cookies.pop('ckBH_lastBoard', 404)
                     cookie = cookies
                     if log:

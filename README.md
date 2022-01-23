@@ -48,6 +48,47 @@ git pull https://github.com/miyouzi/aniGamerPlus.git
 python3 aniGamerPlus.py
 ```
 
+## Docker 運行
+
+### (可選) 建構自己的 Image
+
+下載原始碼
+
+```bash
+git clone https://github.com/miyouzi/aniGamerPlus.git
+```
+
+Build Image
+
+```bash
+docker build -t anigamerplus .
+```
+
+## 下載官方 Image
+
+目前官方 Image 放在 `tonypepe/anigamerplus`
+
+使用前需在本地先創建好 config.json，並綁定 config.json 和下載目錄至 Container 內。
+
+注意：
+
+1. confg.json 中的 Dashboard Host 請設定成 `0.0.0.0`，切勿設定 `127.0.0.1`.
+2. config.json 勿設定下載目錄 `bangumi_dir: ""`，請保持為空，以免目錄綁定失敗。
+3. 可綁定 cookie.txt 至 `/app/cookie.txt`
+
+使用：
+
+```bash
+docker run -td --name anigamerplus \
+    -v /path/to/config.json:/app/config.json \
+    -v /path/to/download:/app/bangumi \
+    -v /path/to/aniGamer.db:/app/aniGamer.db \
+    -p 5000:5000 \
+    tonypepe/anigamerplus
+```
+
+啟動後可至 `localhost:5000` 使用 [Dashboard](#dashboard)。
+
 ## 鳴謝
 
 本專案m3u8获取模塊參考自 [BahamutAnimeDownloader](https://github.com/c0re100/BahamutAnimeDownloader)
@@ -113,6 +154,7 @@ python3 aniGamerPlus.py
     "check_frequency": 5,  # 檢查更新頻率, 單位為分鐘
     "download_resolution": "1080",  # 下載選取清晰度, 若該清晰度不存在將會選取最近可用清晰度, 可選 360 480 540 576 720 1080
     "lock_resolution": false,  # 鎖定清晰度, 如果指定清晰度不存在, 則放棄下載
+    "only_use_vip": false,  # 锁定 VIP 账号下载
     "default_download_mode": "latest",  # 默認下載模式, 另一可選參數為 all 和 largest-sn. latest 為僅下載最後一集, all 下載番劇全部劇集, largest-sn 下載最近上傳的一集
     "use_copyfile_method": false,  # 轉移影片至番劇資料夾時使用複製方法, 適用於保存到 rclone 掛載盤的情況
     "multi-thread": 1,  # 最大并發下載數, 最高為 5, 超過將重置為 5

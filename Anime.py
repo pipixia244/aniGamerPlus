@@ -113,11 +113,10 @@ class Anime():
 
     def __get_src(self):
         if self._settings['use_mobile_api']:
-            self._src = self.__request(f'https://api.gamer.com.tw/mobile_app/anime/v1/video.php?sn={self._sn}').json()
+            self._src = self.__request(f'https://api.gamer.com.tw/mobile_app/anime/v1/video.php?sn={self._sn}', no_cookies=True).json()
         else:
-            host = 'ani.gamer.com.tw'
-            req = 'https://' + host + '/animeVideo.php?sn=' + str(self._sn)
-            f = self.__request(req)
+            req = f'https://ani.gamer.com.tw/animeVideo.php?sn={self._sn}'
+            f = self.__request(req, no_cookies=True)
             self._src = BeautifulSoup(f.content, "lxml")
 
     def __get_title(self):
@@ -143,12 +142,26 @@ class Anime():
         self._bangumi_name = re.sub(r'\s+', ' ', self._bangumi_name)  # 去除重复空格
 
     def __get_episode(self):  # 提取集数
+
+        def get_ep():
+            # 20210719 动画疯的版本位置又瞎蹦跶
+            # https://github.com/miyouzi/aniGamerPlus/issues/109
+            # 先查看有沒有數字, 如果沒有再查看有沒有中括號, 如果都沒有直接放棄, 把集數填作 1
+            self._episode = re.findall(r'\[\d*\.?\d* *\.?[A-Z,a-z]*(?:電影)?\]', self._title)
+            if len(self._episode) > 0:
+                self._episode = str(self._episode[0][1:-1])
+            elif len(re.findall(r'\[.+?\]', self._title)) > 0:
+                self._episode = re.findall(r'\[.+?\]', self._title)
+                self._episode = str(self._episode[0][1:-1])
+            else:
+                self._episode = "1"
+
         # 20200320 发现多版本标签后置导致原集数提取方法失效
         # https://github.com/miyouzi/aniGamerPlus/issues/36
         # self._episode = re.findall(r'\[.+?\]', self._title)  # 非贪婪匹配
         # self._episode = str(self._episode[-1][1:-1])  # 考虑到 .5 集和 sp、ova 等存在，以str储存
         if self._settings['use_mobile_api']:
-            self._episode = str(re.findall(r'\[.+?\]', self._title)[0][1:-1])
+            get_ep()
         else:
             soup = self._src
             try:
@@ -157,8 +170,9 @@ class Anime():
             except AttributeError:
                 # 如果这个sn就一集, 不存在剧集列表的情况
                 # https://github.com/miyouzi/aniGamerPlus/issues/36#issuecomment-605065988
-                self._episode = re.findall(r'\[.+?\]', self._title)  # 非贪婪匹配
-                self._episode = str(self._episode[0][1:-1])  # 考虑到 .5 集和 sp、ova 等存在，以str储存
+                # self._episode = re.findall(r'\[.+?\]', self._title)  # 非贪婪匹配
+                # self._episode = str(self._episode[0][1:-1])  # 考虑到 .5 集和 sp、ova 等存在，以str储存
+                get_ep()
 
     def __get_episode_list(self):
         if self._settings['use_mobile_api']:
@@ -225,15 +239,23 @@ class Anime():
         else:
             self._req_header = self._web_header
 
-    def __request(self, req, no_cookies=False, show_fail=True, max_retry=3):
+    def __request(self, req, no_cookies=False, show_fail=True, max_retry=3, addition_header=None):
+        # 设置 header
+        current_header = self._req_header
+        if addition_header is None:
+            addition_header = {}
+        if len(addition_header) > 0:
+            for key in addition_header.keys():
+                current_header[key] = addition_header[key]
+
         # 获取页面
         error_cnt = 0
         while True:
             try:
                 if self._cookies and not no_cookies:
-                    f = self._session.get(req, headers=self._req_header, cookies=self._cookies, timeout=10)
+                    f = self._session.get(req, headers=current_header, cookies=self._cookies, timeout=10)
                 else:
-                    f = self._session.get(req, headers=self._req_header, cookies={}, timeout=10)
+                    f = self._session.get(req, headers=current_header, cookies={}, timeout=10)
             except requests.exceptions.RequestException as e:
                 if error_cnt >= max_retry >= 0:
                     raise TryTooManyTimeError('任務狀態: sn=' + str(self._sn) + ' 请求失败次数过多！请求链接：\n%s' % req)
@@ -294,34 +316,21 @@ class Anime():
                             # 即使切换 header cookie 也无法刷新, 那么恢复 header, 好歹广告只有 3s
                             self._req_header = self._mobile_header
 
-                elif '__cfduid' in f.headers.get('set-cookie') and 'BAHARUNE' not in f.headers.get('set-cookie'):
-                    # cookie 刷新两步走, 这是第二步, 追加在第一步后面
-                    # 此时self._cookies已是完整新cookie,不需要再从文件载入
-                    # 20190507 发现是一步到位了, 但保不准会不会改回去, 姑且加个 and
-                    self._cookies['__cfduid'] = f.cookies.get_dict()['__cfduid']
-                    Config.renew_cookies(self._cookies)  # 保存全新cookie
+                else:
+                    # 本线程收到了新cookie
+                    # 20220115 简化 cookie 刷新逻辑
+                    err_print(self._sn, '收到新cookie', display=False)
 
-                    if self._settings['use_mobile_api']:
-                        # 使用 cookie 不仅仅为了VIP, 还可用于解锁 R18, 恢复header减少广告时间
-                        # 这也是为什么不识别到 cookie 直接关闭移动 API 解析的原因, 非会员解锁R18的同时也可以享受短广告
-                        self._req_header = self._mobile_header
-
-                    err_print(0, '用戶cookie已更新', status=2, no_sn=True)
-
-                elif 'hahatoken' in f.headers.get('set-cookie') and 'BAHARUNE' not in f.headers.get('set-cookie'):
-                    # 巴哈cookie升级
-                    # https://github.com/miyouzi/aniGamerPlus/issues/8
-                    # 每次请求都会返回一个token, token生命周期 3000s (即50min)
-                    # 这一点都不节能啊! (
-                    self._cookies['hahatoken'] = f.cookies.get_dict()['hahatoken']
+                    self._cookies.update(f.cookies.get_dict())
                     Config.renew_cookies(self._cookies, log=False)
 
-                else:  # 这是第一步
-                    # 本线程收到了新cookie
-                    err_print(self._sn, '收到新cookie', display=False)
-                    Config.renew_cookies(f.cookies.get_dict())  # 保存一半新cookie
-                    self._cookies = Config.read_cookie()  # 载入一半新cookie
-                    self.__request('https://ani.gamer.com.tw/')  # 马上完成cookie刷新第二步, 以免正好在刚要解析m3u8时掉链子
+                    key_list_str = ', '.join(f.cookies.get_dict().keys())
+                    err_print(self._sn, f'用戶cookie刷新 {key_list_str} ', display=False)
+
+                    self.__request('https://ani.gamer.com.tw/')
+                    # 20210724 动画疯一步到位刷新 Cookie
+                    if 'BAHARUNE' in f.headers.get('set-cookie'):
+                        err_print(0, '用戶cookie已更新', status=2, no_sn=True)
 
         return f
 
@@ -416,7 +425,7 @@ class Anime():
 
         def parse_playlist():
             req = self._playlist['src']
-            f = self.__request(req, no_cookies=True)
+            f = self.__request(req, no_cookies=True, addition_header={"referer": "https://ani.gamer.com.tw/"})
             url_prefix = re.sub(r'playlist.+', '', self._playlist['src'])  # m3u8 URL 前缀
             m3u8_list = re.findall(r'=\d+x\d+\n.+', f.content.decode())  # 将包含分辨率和 m3u8 文件提取
             m3u8_dict = {}
@@ -448,6 +457,10 @@ class Anime():
             # 如果用户不是 VIP, 那么等待广告(20s)
             # 20200513 网站更新，最低广告更新时间从8s增加到20s https://github.com/miyouzi/aniGamerPlus/issues/41
             # 20200806 网站更新，最低广告更新时间从20s增加到25s https://github.com/miyouzi/aniGamerPlus/issues/55
+
+            if self._settings['only_use_vip']:
+                 err_print(self._sn, '非VIP','因為已設定只使用VIP下載，故強制停止', status=1, no_sn=True)
+                 sys.exit(1)
 
             if self._settings['use_mobile_api']:
                 ad_time = self._settings['mobile_ads_time']  # APP解析廣告解析時間不同
@@ -538,8 +551,7 @@ class Anime():
         with open(m3u8_path, 'w', encoding='utf-8') as f:  # 保存 m3u8 文件在本地
             f.write(m3u8_text)
             pass
-        key_uri = re.search(r'.+URI=.+m3u8key.+', m3u8_text).group()  # 找到包含 key 的行
-        key_uri = re.sub(r'.+URI="', '', key_uri)[0:-1]  # 把 key 的链接提取出来
+        key_uri = re.search(r'(?<=AES-128,URI=")(.*)(?=")', m3u8_text).group()  # 把 key 的链接提取出来
         original_key_uri = key_uri
 
         if not re.match(r'http.+', key_uri):
@@ -669,7 +681,7 @@ class Anime():
             shutil.move(merging_file, output_file)  # 此方法在遇到rclone挂载盘时会出错
 
         # 删除临时目录
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
         self.local_video_path = output_file  # 记录保存路径, FTP上传用
         self._video_filename = filename  # 记录文件名, FTP上传用
@@ -890,7 +902,7 @@ class Anime():
                     self.__request(req, no_cookies=True)
             except BaseException as e:
                 err_print(self._sn, 'CQ NOTIFY ERROR', 'Exception: ' + str(e), status=1)
-                
+
         # 推送 TG 通知
         if self._settings['telebot_notify']:
             try:
@@ -1200,6 +1212,7 @@ class Anime():
 
     def set_resolution(self, resolution):
         self.video_resolution = int(resolution)
+
 
 if __name__ == '__main__':
     pass
